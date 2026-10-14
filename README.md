@@ -9,7 +9,8 @@
 预先确定的 **64 组**实验见 [`EXPERIMENT_PLAN.md`](EXPERIMENT_PLAN.md)：
 magnitude、row-magnitude、随机剪枝、Wanda、SparseGPT，多比例 / 4 元组约束 / 模块与层段消融。
 增加独立 WikiText test 困惑度诊断、逐题贡献、自由生成和格式合法性分析。
-v2 的现有结论见 [`REPORT.md`](REPORT.md)；v3 结果将单独保存于 `outputs/pruning_v3/`，完成前不把计划当结果。
+v2 的现有结论见 [`REPORT.md`](REPORT.md)；v3 分析见 [`PRUNING_REPORT.md`](PRUNING_REPORT.md)，
+结果单独保存于 `outputs/pruning_v3/`，完成前不把计划当结果。
 
 ```bash
 # 安装/激活与 outputs/corrected_v2/environment.freeze.txt 对应的环境。

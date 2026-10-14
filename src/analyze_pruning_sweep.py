@@ -120,6 +120,8 @@ def main():
         expected_dimensions={d:float(sum(int(it['dir'])*expected_item[i] for i,it in enumerate(items)
                                          if it['trait']==d)) for d in AXES}
         balanced_type,balanced_dimensions=balanced_score(items,choices)
+        ordinal=np.array([OPTION_SCORES[c] for c in choices])
+        dense_ordinal=np.array([OPTION_SCORES[c] for c in bc])
         row={'tag':tag,'method':cfg['method'],'requested_ratio':cfg['ratio'],'scope':cfg['scope'],
              'drop_n_of_4':cfg['drop_n'],'seed':cfg['seed'],'calibration_seed':cfg['calibration_seed'],
              'eligible_zero_fraction':s['prune']['eligible_zero_fraction'],
@@ -128,6 +130,10 @@ def main():
              **{'soft_'+d:expected_dimensions[d] for d in AXES},
              'balanced_mbti':balanced_type,**{'balanced_'+d:balanced_dimensions[d] for d in AXES},
              'agreement_60':float((~changed).mean()),'agreement_49':float((~changed[scored]).mean()),
+             'mean_absolute_option_step':float(np.abs(ordinal-dense_ordinal).mean()),
+             'mean_absolute_option_step_49':float(np.abs(ordinal-dense_ordinal)[scored].mean()),
+             'opposite_polarity_items':int((ordinal*dense_ordinal<0).sum()),
+             'neutral_status_changes':int(((ordinal==0)!=(dense_ordinal==0)).sum()),
              'ppl':s['language_eval']['perplexity'],'ppl_ratio':s['language_eval']['perplexity']/base['language_eval']['perplexity'],
              'test_nll_delta':s['language_eval']['mean_nll']-base['language_eval']['mean_nll'],
              'option_mass':s['mean_option_probability_mass'],'legal_first_token_rate':s['unconstrained_option_rate'],
@@ -155,8 +161,9 @@ def main():
         ratios=sorted(set(r['requested_ratio'] for r in subset))
         for ax,key in zip(axs.flat,['agreement_60','ppl_ratio','option_mass','neutral_D_fraction']):
             means=[np.mean([r[key] for r in subset if r['requested_ratio']==ratio]) for ratio in ratios]
-            stds=[np.std([r[key] for r in subset if r['requested_ratio']==ratio]) for ratio in ratios]
-            ax.errorbar(np.array(ratios)*100,means,yerr=stds,marker='o',capsize=3,label=method)
+            lows=[means[i]-min(r[key] for r in subset if r['requested_ratio']==ratio) for i,ratio in enumerate(ratios)]
+            highs=[max(r[key] for r in subset if r['requested_ratio']==ratio)-means[i] for i,ratio in enumerate(ratios)]
+            ax.errorbar(np.array(ratios)*100,means,yerr=np.array([lows,highs]),marker='o',capsize=3,label=method)
             ax.set_xlabel('Requested eligible-weight sparsity (%)');ax.set_ylabel(key);ax.grid(alpha=.25)
     axs[0,1].set_yscale('log');axs[1,0].set_yscale('log');axs[0,0].legend(fontsize=8)
     fig.suptitle('Static pruning: response agreement, language loss and format diagnostics')
@@ -192,7 +199,7 @@ def main():
     lines+=['','逐题可审计分解见 `item_deltas.csv`，逐层和生成原文见 `analysis.json`。',
             '常量回答对照见 `response_controls.json`：当前题目方向下，全选 A/B/C 是 ENFJ，全选 E/F/G 是 ISTP。',
             '`soft_*` 是选项概率加权的期望分数；`balanced_*` 是正/负向题分别取均值再相减的事后敏感性分析。二者不替代原协议分数，也不是验证过的新量表。',
-            '随机方法误差棒仅为 3 个掩码种子的标准差，不是人群/模型家族置信区间。',
+            '随机方法曲线是种子均值，误差棒为掩码种子的最小–最大范围（完整结果为 3 个种子），不是置信区间。',
             '局部 scope 消融的总删除参数不同，不能直接当等预算方法排名。','']
     (outdir/'RESULTS.md').write_text('\n'.join(lines))
     print(f'Validated {len(rows)}/64; wrote comparison.csv, item_deltas.csv, analysis.json, RESULTS.md and plots.')
