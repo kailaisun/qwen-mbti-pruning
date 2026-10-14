@@ -1,0 +1,10 @@
+# Versions used by the v3 pruning sweep (CUDA-compatible PyTorch required).
+torch==2.14.1
+transformers==5.19.0
+numpy==2.2.6
+datasets==5.1.0
+safetensors==0.8.0
+accelerate==1.15.0
+matplotlib==3.10.9
+requests==2.34.2
+tqdm==4.70.1

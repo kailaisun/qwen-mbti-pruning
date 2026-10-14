@@ -1,0 +1,102 @@
+[
+  {
+    "tag": "qwen25-7b-fp16",
+    "mbti": "ENFJ",
+    "scores": {
+      "EI": 5,
+      "NS": 13,
+      "FT": 5,
+      "JP": 15
+    },
+    "agreement_all": 60,
+    "agreement_scored": 49,
+    "scored_n": 49,
+    "entropy": 0.7397593259811401,
+    "gap": 0.5316330790519714,
+    "option_mass": 0.9999998142321904,
+    "unconstrained_option_rate": 1.0,
+    "double_norm_changed": 16,
+    "old_mbti": "ENFJ",
+    "old_choices_changed": 15
+  },
+  {
+    "tag": "qwen25-7b-awq4",
+    "mbti": "ENFJ",
+    "scores": {
+      "EI": 8,
+      "NS": 6,
+      "FT": 8,
+      "JP": 20
+    },
+    "agreement_all": 42,
+    "agreement_scored": 34,
+    "scored_n": 49,
+    "entropy": 0.7339593172073364,
+    "gap": 0.5136400461196899,
+    "option_mass": 0.9999998986721039,
+    "unconstrained_option_rate": 1.0,
+    "double_norm_changed": 16,
+    "old_mbti": "ENFJ",
+    "old_choices_changed": 16
+  },
+  {
+    "tag": "qwen25-7b-gptq4",
+    "mbti": "EN?J",
+    "scores": {
+      "EI": 5,
+      "NS": 18,
+      "FT": 0,
+      "JP": 10
+    },
+    "agreement_all": 23,
+    "agreement_scored": 20,
+    "scored_n": 49,
+    "entropy": 0.5409491658210754,
+    "gap": 0.6081560850143433,
+    "option_mass": 0.9999997913837433,
+    "unconstrained_option_rate": 1.0,
+    "double_norm_changed": 5,
+    "old_mbti": "ENFJ",
+    "old_choices_changed": 5
+  },
+  {
+    "tag": "qwen25-7b-prune-u50",
+    "mbti": "EN?J",
+    "scores": {
+      "EI": 11,
+      "NS": 4,
+      "FT": 0,
+      "JP": 3
+    },
+    "agreement_all": 11,
+    "agreement_scored": 8,
+    "scored_n": 49,
+    "entropy": 0.584721028804779,
+    "gap": 0.5861124396324158,
+    "option_mass": 0.9096971044937769,
+    "unconstrained_option_rate": 0.9833333333333333,
+    "double_norm_changed": 3,
+    "old_mbti": "ENFJ",
+    "old_choices_changed": 7
+  },
+  {
+    "tag": "qwen25-7b-prune-2to4",
+    "mbti": "ENFJ",
+    "scores": {
+      "EI": 2,
+      "NS": 20,
+      "FT": 8,
+      "JP": 5
+    },
+    "agreement_all": 19,
+    "agreement_scored": 19,
+    "scored_n": 49,
+    "entropy": 1.0615289211273193,
+    "gap": 0.17956389486789703,
+    "option_mass": 1.8973600663230173e-05,
+    "unconstrained_option_rate": 0.0,
+    "double_norm_changed": 20,
+    "old_mbti": "ENFJ",
+    "old_choices_changed": 24
+  }
+]
