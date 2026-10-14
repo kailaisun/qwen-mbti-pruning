@@ -67,6 +67,9 @@ def main():
         tag=cfg['tag'];s,z,choices=runs[tag]
         assert s['sweep_config']==cfg
         assert s['provenance']['source_sha256']==base['provenance']['source_sha256']
+        # Embedding, final norm and LM head were never pruned; the embedding
+        # lens is an invariant control shared by every treatment.
+        np.testing.assert_allclose(z[:,0],bz[:,0],atol=1e-5,rtol=1e-5)
         p=softmax(z); changed=np.array(choices)!=np.array(bc)
         divergence=jsd(p,bp);layer_js[tag]=divergence.mean(0).tolist()
         votes={c:choices.count(c) for c in OPTIONS}
@@ -149,8 +152,10 @@ def main():
            'PPL 为固定 WikiText-2 test 短上下文子集诊断；一致率不是准确率，也不是真实人格保持率。',
            '零分 `?` 表示该维度没有确定方向。首 token 不合法不等同于整段生成一定不合法；自由生成只有 6 个固定探针。','',header,separator]
     lines.extend(table_line(r) for r in rows)
-    lines+=['','## 图表','','![多比例比较](sparsity_tradeoffs.png)','','![50% 层级偏移](layer_jsd_50.png)','','![50% 维度分数](dimension_scores_50.png)',
-            '','逐题可审计分解见 `item_deltas.csv`，逐层和生成原文见 `analysis.json`。',
+    lines+=['','## 图表','','![多比例比较](sparsity_tradeoffs.png)']
+    if compare_tags:
+        lines+=['','![50% 层级偏移](layer_jsd_50.png)','','![50% 维度分数](dimension_scores_50.png)']
+    lines+=['','逐题可审计分解见 `item_deltas.csv`，逐层和生成原文见 `analysis.json`。',
             '随机方法误差棒仅为 3 个掩码种子的标准差，不是人群/模型家族置信区间。',
             '局部 scope 消融的总删除参数不同，不能直接当等预算方法排名。','']
     (outdir/'RESULTS.md').write_text('\n'.join(lines))

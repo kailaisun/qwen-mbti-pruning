@@ -7,7 +7,9 @@ import torch
 from transformers import Qwen2Config, Qwen2ForCausalLM
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
-from static_pruning import exact_mask, make_mask, sparsegpt_weight, capture_block_inputs, block_forward
+from static_pruning import (exact_mask, make_mask, sparsegpt_weight, capture_block_inputs,
+                            block_forward, prune_datafree, prune_calibrated, selected)
+from run_experiment import prune_static_
 from run_pruning_sweep import experiment_matrix
 
 
@@ -70,6 +72,35 @@ class StaticPruningTests(unittest.TestCase):
         matrix=experiment_matrix()
         self.assertEqual(len(matrix),64)
         self.assertEqual(len({c['tag'] for c in matrix}),64)
+
+    def test_datafree_matches_v2_and_preserves_other_parameters(self):
+        import copy
+        torch.manual_seed(21)
+        cfg=Qwen2Config(vocab_size=32,hidden_size=16,intermediate_size=32,
+                        num_hidden_layers=2,num_attention_heads=4,num_key_value_heads=2)
+        for pattern,drop in [('unstructured',0),('2to4',2)]:
+            model=Qwen2ForCausalLM(cfg).eval();reference=copy.deepcopy(model)
+            prune_static_(reference,pattern,.5)
+            prune_datafree(model,'magnitude',.5,drop_n=drop)
+            for actual,expected in zip(model.parameters(),reference.parameters()):
+                torch.testing.assert_close(actual,expected,rtol=0,atol=0)
+
+    def test_calibrated_model_masks_and_scope_partition(self):
+        torch.manual_seed(25)
+        cfg=Qwen2Config(vocab_size=32,hidden_size=16,intermediate_size=32,
+                        num_hidden_layers=2,num_attention_heads=4,num_key_value_heads=2)
+        for method in ['wanda','sparsegpt']:
+            model=Qwen2ForCausalLM(cfg).eval()
+            embed=model.model.embed_tokens.weight.detach().clone()
+            head=model.lm_head.weight.detach().clone()
+            stats,errors=prune_calibrated(model,torch.randint(0,32,(2,12)),method,.5)
+            self.assertEqual(len(stats),14);self.assertEqual(len(errors),2)
+            self.assertTrue(all(x['masked']==x['numel']//2 for x in stats))
+            torch.testing.assert_close(model.model.embed_tokens.weight,embed,rtol=0,atol=0)
+            torch.testing.assert_close(model.lm_head.weight,head,rtol=0,atol=0)
+        for index in range(28):
+            name=f'model.layers.{index}.mlp.up_proj'
+            self.assertEqual(sum(selected(name,s,28) for s in ['early','middle','late']),1)
 
 
 if __name__=='__main__':

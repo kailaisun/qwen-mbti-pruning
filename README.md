@@ -16,6 +16,10 @@ v2 的现有结论见 [`REPORT.md`](REPORT.md)；v3 结果将单独保存于 `ou
 python scripts/prepare_pruning_data.py
 CUDA_VISIBLE_DEVICES=2 python -B src/run_pruning_sweep.py
 # 支持 --tags wanda-s50 sparsegpt-s50 等子集；已有匹配结果自动复用。
+# H200 上有足够空闲显存时，可双进程并行（也可配置为两张卡）：
+GPU_SPARSE=2 GPU_OTHER=2 PYTHON=python bash scripts/run_pruning_parallel.sh
+# 只在全部 64 组齐全并通过校验后生成最终汇总：
+python src/analyze_pruning_sweep.py
 ```
 
 GitHub 不包含模型权重、缓存、日志、原论文全文、旧归档或密钥。
