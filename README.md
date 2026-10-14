@@ -4,29 +4,41 @@
 使用 Qwen2.5-7B-Instruct；不是论文中的 Qwen2.5-14B/72B 原表数值复现。
 包含无条件 60 题评测、逐层选项分布，以及量化/静态剪枝的对照。
 
-## 多方法剪枝扩展（v3，运行中）
+## 多方法剪枝扩展（v3，已完成）
 
 预先确定的 **64 组**实验见 [`EXPERIMENT_PLAN.md`](EXPERIMENT_PLAN.md)：
 magnitude、row-magnitude、随机剪枝、Wanda、SparseGPT，多比例 / 4 元组约束 / 模块与层段消融。
 增加独立 WikiText test 困惑度诊断、逐题贡献、自由生成和格式合法性分析。
 v2 的现有结论见 [`REPORT.md`](REPORT.md)；v3 分析见 [`PRUNING_REPORT.md`](PRUNING_REPORT.md)，
-结果单独保存于 `outputs/pruning_v3/`，完成前不把计划当结果。
+**64/64 组已完成，15 项测试通过**。完整结果见
+[`RESULTS.md`](outputs/pruning_v3/RESULTS.md)，结构/位置/种子比较见
+[`ABLATIONS.md`](outputs/pruning_v3/ABLATIONS.md)。结果保存在 `outputs/pruning_v3/`。
+
+主要发现：50% 时 Wanda / SparseGPT 的 test 子集 PPL 约为 17.1，幅值剪枝约为 299–312。
+但 ENFJ 标签不代表回答稳定，更不代表模型仍在有效作答；详见报告中的逐题贡献、
+常量答案控制及固定掩码模块交互分析。
 
 ```bash
-# 安装/激活与 outputs/corrected_v2/environment.freeze.txt 对应的环境。
+# 环境版本见 requirements-pruning.txt；先缓存固定 revision 的 Qwen 模型。
+# 仅首次准备校准数据（已有数据时不覆盖）：
 python scripts/prepare_pruning_data.py
-CUDA_VISIBLE_DEVICES=2 python -B src/run_pruning_sweep.py
+# 真正重跑请使用新的输出目录；默认目录会复用已完成结果。
+CUDA_VISIBLE_DEVICES=2 python -B src/run_pruning_sweep.py --outdir outputs/pruning_repeat
 # 支持 --tags wanda-s50 sparsegpt-s50 等子集；已有匹配结果自动复用。
-# H200 上有足够空闲显存时，可双进程并行（也可配置为两张卡）：
-GPU_SPARSE=2 GPU_OTHER=2 PYTHON=python bash scripts/run_pruning_parallel.sh
+# 或使用双进程（同卡建议至少约 50 GiB 空闲显存，也可配置为两张卡）：
+GPU_SPARSE=2 GPU_OTHER=2 PYTHON=python OUTDIR=outputs/pruning_repeat \
+LOGDIR=logs/pruning_repeat bash scripts/run_pruning_parallel.sh
 # 只在全部 64 组齐全并通过校验后生成最终汇总：
 python src/analyze_pruning_sweep.py
+# 若重跑到新目录，则使用 --outdir outputs/pruning_repeat 分析新结果。
+# 不占 GPU 的进度查询：
+python scripts/check_pruning_status.py
 ```
 
 GitHub 不包含模型权重、缓存、日志、原论文全文、旧归档或密钥。
 参考实现及许可证见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 
-## 当前版本
+## 上一轮 v2 结果与本地存档
 
 - 修正版结果：`outputs/corrected_v2/`。
 - 实验报告：[`REPORT.md`](REPORT.md)。
@@ -34,7 +46,7 @@ GitHub 不包含模型权重、缓存、日志、原论文全文、旧归档或�
 - 修改前完整备份：`archive/pre_fix_20261014_yoD34B/`。
 - `outputs/` 根目录的旧结果含末层重复归一化错误，保留作审计，不作正式结论。
 
-## 修正与边界
+## v2 修正与边界（v3 校准方法另见新报告）
 
 1. 最后一层使用模型原生 `out.logits`，不对已归一化状态再次归一化；每题检查输出头投影与原生 logits 一致。
 2. 中间层只投影选项对应的输出头行，避免逐层计算完整词表；模型仅生成最后位置的 logits。
@@ -45,7 +57,7 @@ GitHub 不包含模型权重、缓存、日志、原论文全文、旧归档或�
 7. 结果以 float32 logits 保存；记录模型 revision、题库和源码 SHA-256、软件版本、GPU、逐题诊断。每份剪枝 checkpoint 保存后重新加载并复测全部 60 题。
 8. 题目方向为人工标注；中间层 logit lens 是分析约定。选项内熵不是语言能力或真实人格指标。
 
-## 运行
+## 运行上一轮 v2
 
 环境：`/home/kailais/venvs/mbti/bin/python`。运行前使用 `nvidia-smi` 选有空闲显存的卡。
 现有结果目录禁止覆盖；一键脚本会复用协议、源码哈希匹配的已完成结果。

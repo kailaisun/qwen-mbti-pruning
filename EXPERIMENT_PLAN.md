@@ -1,6 +1,7 @@
 # Qwen2.5-7B 静态剪枝扩展实验（v3）
 
-状态：实施中。原有 `REPORT.md` / `outputs/corrected_v2` 保留，不覆盖。
+状态：64/64 组已完成并通过校验（2026-10-14）。最终分析见 `PRUNING_REPORT.md`。
+原有 `REPORT.md` / `outputs/corrected_v2` 保留，不覆盖。
 
 ## 预先确定的实验矩阵
 
@@ -46,7 +47,7 @@ SparseGPT 用精确个数掩码替代上游阈值的边界多剪；实际 masked
 - [SparseGPT 官方代码](https://github.com/IST-DASLab/sparsegpt/tree/147d2159dc4f3e9f73e47b32c04d7b3708f44436)。针对 Qwen2/Transformers 5 接口适配。
 - [WikiText 数据集](https://huggingface.co/datasets/Salesforce/wikitext)，revision `b08601e04326c79dfdd32d625aee71d232d685c3`。
 
-GitHub 默认新建 `kailaisun/qwen-mbti-pruning` 私有仓库。只提交代码、文档、轻量结果和图表；不提交凭据、模型权重、缓存、原论文全文、运行日志或旧归档。
+GitHub 仓库为 `kailaisun/qwen-mbti-pruning`（私有）。只提交代码、文档、轻量结果和图表；不提交凭据、模型权重、缓存、原论文全文、运行日志或旧归档。
 
 ## 运行期间追加的分析（明确为事后诊断）
 
@@ -54,3 +55,9 @@ GitHub 默认新建 `kailaisun/qwen-mbti-pruning` 私有仓库。只提交代码
 同时输出选项概率加权分数（`soft_*`），以及正/负向题分别取均值再相减的
 计分敏感性分析（`balanced_*`）。这不是原论文指标，也不是经过验证的新人格量表；
 全部主表仍保留既定求和计分。追加分析不改变 64 组模型实验及其结果。
+
+对预设的 attention / MLP / all 幅值剪枝消融，追加固定掩码 2×2 交互分析：
+先验证两个局部掩码互不相交、并集与 all 掩码逐模块 SHA-256 完全相同，
+再在相同 test 上计算 `L(all) - L(attention) - L(MLP) + L(dense)`。
+这项分析使用已有四组实验，不新增模型运行；Wanda 因校准输入变化可能导致不同掩码，
+不直接套用该固定掩码解释。

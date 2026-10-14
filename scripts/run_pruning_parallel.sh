@@ -15,6 +15,11 @@ if [ "${#sparse_tags[@]}" -ne 12 ] || [ "${#other_tags[@]}" -ne 52 ]; then
   printf 'Invalid experiment partition.\n' >&2
   exit 1
 fi
+for worker_log in sparse_worker.log other_worker.log; do
+  if [ -f "$LOGDIR/$worker_log" ]; then
+    mv "$LOGDIR/$worker_log" "$LOGDIR/${worker_log%.log}.before-retry.$(date -u +%Y%m%dT%H%M%SZ).$$.log"
+  fi
+done
 CUDA_VISIBLE_DEVICES="$GPU_SPARSE" PYTHONUNBUFFERED=1 "$PY" -B src/run_pruning_sweep.py \
   --outdir "$OUTDIR" --tags "${sparse_tags[@]}" > "$LOGDIR/sparse_worker.log" 2>&1 & sparse_pid=$!
 CUDA_VISIBLE_DEVICES="$GPU_OTHER" PYTHONUNBUFFERED=1 "$PY" -B src/run_pruning_sweep.py \

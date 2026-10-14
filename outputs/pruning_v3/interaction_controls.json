@@ -1,0 +1,25 @@
+{
+  "type": "Post-hoc fixed-mask 2x2 factorial analysis on held-out mean NLL",
+  "scope": "magnitude only; Wanda masks can change with upstream calibration inputs",
+  "masks_verified_disjoint_and_union_equal": true,
+  "treatments": {
+    "dense-s00": {
+      "mean_nll": 2.5627332255244255,
+      "ppl": 12.971222184313662
+    },
+    "magnitude-s50-attention": {
+      "mean_nll": 2.773349419236183,
+      "ppl": 16.012175782395843
+    },
+    "magnitude-s50-mlp": {
+      "mean_nll": 3.8733075484633446,
+      "ppl": 48.101220377494606
+    },
+    "magnitude-s50": {
+      "mean_nll": 5.742131695151329,
+      "ppl": 311.72821273815964
+    }
+  },
+  "interaction_nats_per_token": 1.6582079529762268,
+  "interpretation": "L(attention+MLP)-L(attention)-L(MLP)+L(dense); descriptive fixed-corpus interaction, no population significance claim"
+}

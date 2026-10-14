@@ -85,6 +85,34 @@ def main():
                          'negative':sum(it['trait']==d and it['dir']==-1 for it in items)} for d in AXES},
         'constant_answers':controls},indent=2))
     base,bz,bc=runs['dense-s00'];bp=softmax(bz);bfinal=bp[:,-1]
+    repeat_controls=[]
+    for tag,oldtag in [('dense-s00','qwen25-7b-fp16'),('magnitude-s50','qwen25-7b-prune-u50'),
+                       ('magnitude-s50-drop2of4','qwen25-7b-prune-2to4')]:
+        previous=ROOT/'outputs/corrected_v2'/oldtag/'results.npz'
+        if tag in runs and previous.exists():
+            old=np.load(previous)['opt_logits'];new=runs[tag][1]
+            repeat_controls.append({'tag':tag,'previous':str(previous.relative_to(ROOT)),
+                'max_abs_logit_difference':float(np.abs(old-new).max()),
+                'matching_final_choices':int((old[:,-1].argmax(-1)==new[:,-1].argmax(-1)).sum()),
+                'note':'Cross-run FP16 regression, not a claim of bitwise identity'})
+    (outdir/'repeat_controls.json').write_text(json.dumps(repeat_controls,indent=2))
+    factorial_tags=['dense-s00','magnitude-s50-attention','magnitude-s50-mlp','magnitude-s50']
+    if all(tag in runs for tag in factorial_tags):
+        summaries=[runs[tag][0] for tag in factorial_tags]
+        all_masks={x['name']:x['mask_sha256'] for x in summaries[3]['prune']['per_layer']}
+        split_masks=[{x['name']:x['mask_sha256'] for x in s['prune']['per_layer']} for s in summaries[1:3]]
+        assert set(split_masks[0]).isdisjoint(split_masks[1])
+        assert {**split_masks[0],**split_masks[1]}==all_masks
+        losses=[s['language_eval']['mean_nll'] for s in summaries]
+        interaction=losses[3]-losses[1]-losses[2]+losses[0]
+        (outdir/'interaction_controls.json').write_text(json.dumps({
+            'type':'Post-hoc fixed-mask 2x2 factorial analysis on held-out mean NLL',
+            'scope':'magnitude only; Wanda masks can change with upstream calibration inputs',
+            'masks_verified_disjoint_and_union_equal':True,
+            'treatments':{tag:{'mean_nll':loss,'ppl':runs[tag][0]['language_eval']['perplexity']}
+                          for tag,loss in zip(factorial_tags,losses)},
+            'interaction_nats_per_token':interaction,
+            'interpretation':'L(attention+MLP)-L(attention)-L(MLP)+L(dense); descriptive fixed-corpus interaction, no population significance claim'},indent=2))
     baseline_gap=np.sort(bfinal,axis=-1)[:,-1]-np.sort(bfinal,axis=-1)[:,-2]
     rows=[];item_rows=[];details={};layer_js={};curve_data={}
     scored=np.array([it['trait'] in AXES for it in items])
@@ -107,6 +135,7 @@ def main():
                  'dense_signed_score':direction*OPTION_SCORES[a],
                  'pruned_signed_score':direction*OPTION_SCORES[b],
                  'signed_score_delta':delta,'dense_option_gap':float(baseline_gap[i]),
+                 'argmax_tied_options':int((z[i,-1]==z[i,-1].max()).sum()),
                  'final_jsd':float(divergence[i,-1]),
                  'option_probability_mass':s['diagnostics'][i]['option_probability_mass'],
                  'unconstrained_top_token_json':json.dumps(s['diagnostics'][i]['unconstrained_top_token'],ensure_ascii=False)}
@@ -134,6 +163,7 @@ def main():
              'mean_absolute_option_step_49':float(np.abs(ordinal-dense_ordinal)[scored].mean()),
              'opposite_polarity_items':int((ordinal*dense_ordinal<0).sum()),
              'neutral_status_changes':int(((ordinal==0)!=(dense_ordinal==0)).sum()),
+             'argmax_tied_items':int(((z[:,-1]==z[:,-1].max(-1,keepdims=True)).sum(-1)>1).sum()),
              'ppl':s['language_eval']['perplexity'],'ppl_ratio':s['language_eval']['perplexity']/base['language_eval']['perplexity'],
              'test_nll_delta':s['language_eval']['mean_nll']-base['language_eval']['mean_nll'],
              'option_mass':s['mean_option_probability_mass'],'legal_first_token_rate':s['unconstrained_option_rate'],
@@ -202,6 +232,23 @@ def main():
             '随机方法曲线是种子均值，误差棒为掩码种子的最小–最大范围（完整结果为 3 个种子），不是置信区间。',
             '局部 scope 消融的总删除参数不同，不能直接当等预算方法排名。','']
     (outdir/'RESULTS.md').write_text('\n'.join(lines))
+    ablations=['# 掩码结构、剪枝位置与种子对照','',f'当前 {len(rows)}/64 组；完整性以 RESULTS.md 为准。',
+               '', '主分数仍为原协议；一致率不是准确率，PPL 是独立短上下文 test 子集。']
+    groups=[('4 元组约束（drop 表示每四个删除的数量）',[r for r in rows if r['drop_n_of_4']]),
+            ('局部剪枝：被选模块内 50%，全模型删除预算不同',[r for r in rows if r['scope']!='all']),
+            ('50% 校准种子重复',[r for r in rows if r['method'] in ['wanda','sparsegpt']
+                 and r['requested_ratio']==.5 and r['scope']=='all' and not r['drop_n_of_4']]),
+            ('随机掩码种子重复',[r for r in rows if r['method']=='random'])]
+    for title,subset in groups:
+        ablations+=['','## '+title,'',
+                    '| 配置 | 实际 eligible 稀疏率 | 类型 | EI/NS/FT/JP | 一致题数 | PPL | 合法首 token |',
+                    '|---|---:|---|---|---:|---:|---:|']
+        for r in subset:
+            ablations.append(f"| {r['tag']} | {r['eligible_zero_fraction']:.3%} | {r['mbti']} | {'/'.join(str(r[d]) for d in AXES)} | {round(r['agreement_60']*60)}/60 | {r['ppl']:.3f} | {r['legal_first_token_rate']:.1%} |")
+    ablations+=['','`eligible` 是全部 196 个可剪线性权重，而不是只在被选中的局部模块内计算。',
+                'early=0–8 层，middle=9–17 层，late=18–27 层；early/middle 等删除预算，late 多一层。',
+                '固定幅值掩码的 attention×MLP 交互见 `interaction_controls.json`；不要把 PPL 直接做加法。','']
+    (outdir/'ABLATIONS.md').write_text('\n'.join(ablations))
     print(f'Validated {len(rows)}/64; wrote comparison.csv, item_deltas.csv, analysis.json, RESULTS.md and plots.')
 
 
