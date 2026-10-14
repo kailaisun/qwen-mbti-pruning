@@ -19,6 +19,22 @@ AXES=['EI','NS','FT','JP']
 METHODS=['magnitude','row_magnitude','wanda','sparsegpt','random']
 
 
+def balanced_score(items,choices):
+    """Post-hoc sensitivity diagnostic, NOT a validated replacement MBTI scale.
+
+    Difference of mean option scores for positive/negative-keyed items removes
+    the constant-answer offset. Determine ties using exact integer numerators.
+    """
+    dimensions={};letters=[]
+    for axis in AXES:
+        pos=[OPTION_SCORES[c] for it,c in zip(items,choices) if it['trait']==axis and it['dir']==1]
+        neg=[OPTION_SCORES[c] for it,c in zip(items,choices) if it['trait']==axis and it['dir']==-1]
+        numerator=sum(pos)*len(neg)-sum(neg)*len(pos)
+        dimensions[axis]=numerator/(len(pos)*len(neg))
+        letters.append(axis[0] if numerator>0 else axis[1] if numerator<0 else '?')
+    return ''.join(letters),dimensions
+
+
 def jsd(p,q):
     middle=(p+q)/2
     return .5*((p*np.log(np.maximum(p,1e-30)/np.maximum(middle,1e-30))).sum(-1)
@@ -27,7 +43,7 @@ def jsd(p,q):
 
 def write_csv(path,rows):
     with path.open('w',newline='') as f:
-        writer=csv.DictWriter(f,fieldnames=list(rows[0]))
+        writer=csv.DictWriter(f,fieldnames=list(rows[0]),lineterminator='\n')
         writer.writeheader();writer.writerows(rows)
 
 
@@ -59,6 +75,15 @@ def main():
     if missing and not args.allow_partial: raise RuntimeError(f'Missing {len(missing)} treatments: {missing}')
     configs=[c for c in configs if c['tag'] not in missing]
     runs={c['tag']:read_run(outdir/c['tag'],items) for c in configs}
+    controls={c:{'original_type':score_mbti(items,[c]*len(items))[0],
+                 'original_scores':score_mbti(items,[c]*len(items))[1],
+                 'balanced_type':balanced_score(items,[c]*len(items))[0]}
+              for c in OPTIONS}
+    (outdir/'response_controls.json').write_text(json.dumps({
+        'purpose':'Post-hoc measurement sensitivity; no new model run; primary scoring unchanged',
+        'key_counts':{d:{'positive':sum(it['trait']==d and it['dir']==1 for it in items),
+                         'negative':sum(it['trait']==d and it['dir']==-1 for it in items)} for d in AXES},
+        'constant_answers':controls},indent=2))
     base,bz,bc=runs['dense-s00'];bp=softmax(bz);bfinal=bp[:,-1]
     baseline_gap=np.sort(bfinal,axis=-1)[:,-1]-np.sort(bfinal,axis=-1)[:,-2]
     rows=[];item_rows=[];details={};layer_js={};curve_data={}
@@ -84,31 +109,40 @@ def main():
                  'signed_score_delta':delta,'dense_option_gap':float(baseline_gap[i]),
                  'final_jsd':float(divergence[i,-1]),
                  'option_probability_mass':s['diagnostics'][i]['option_probability_mass'],
-                 'unconstrained_top_token':s['diagnostics'][i]['unconstrained_top_token']}
+                 'unconstrained_top_token_json':json.dumps(s['diagnostics'][i]['unconstrained_top_token'],ensure_ascii=False)}
             item_rows.append(row)
             if delta: contributions.append(row)
         for dimension in AXES:
             assert sum(r['signed_score_delta'] for r in contributions if r['trait']==dimension)==(
                 s['dichotomies'][dimension]['score']-base['dichotomies'][dimension]['score'])
         stats=s['prune']['per_layer'];energy=sum(x['weight_energy'] for x in stats)
+        expected_item=p[:,-1]@np.array([OPTION_SCORES[c] for c in OPTIONS])
+        expected_dimensions={d:float(sum(int(it['dir'])*expected_item[i] for i,it in enumerate(items)
+                                         if it['trait']==d)) for d in AXES}
+        balanced_type,balanced_dimensions=balanced_score(items,choices)
         row={'tag':tag,'method':cfg['method'],'requested_ratio':cfg['ratio'],'scope':cfg['scope'],
              'drop_n_of_4':cfg['drop_n'],'seed':cfg['seed'],'calibration_seed':cfg['calibration_seed'],
              'eligible_zero_fraction':s['prune']['eligible_zero_fraction'],
              'masked_model_fraction':s['prune']['masked_parameters']/s['prune']['total_model_parameters'],
              'mbti':s['predicted_mbti'],**{d:s['dichotomies'][d]['score'] for d in AXES},
+             **{'soft_'+d:expected_dimensions[d] for d in AXES},
+             'balanced_mbti':balanced_type,**{'balanced_'+d:balanced_dimensions[d] for d in AXES},
              'agreement_60':float((~changed).mean()),'agreement_49':float((~changed[scored]).mean()),
              'ppl':s['language_eval']['perplexity'],'ppl_ratio':s['language_eval']['perplexity']/base['language_eval']['perplexity'],
              'test_nll_delta':s['language_eval']['mean_nll']-base['language_eval']['mean_nll'],
              'option_mass':s['mean_option_probability_mass'],'legal_first_token_rate':s['unconstrained_option_rate'],
              'strict_generation_rate':float(np.mean([x['strict_single_letter'] for x in s['generation_probe']])),
              'neutral_D_fraction':votes['D']/60,'final_jsd':float(divergence[:,-1].mean()),
+             'most_common_choice':max(votes,key=votes.get),'most_common_fraction':max(votes.values())/60,
              'weight_relative_mse':sum(x['weight_delta_energy'] for x in stats)/energy if energy else 0.,
              'entropy':s['layer_entropy_mean'][-1],'gap':s['layer_gap_mean'][-1],
              'flipped_dense_gap_mean':float(baseline_gap[changed].mean()) if changed.any() else None,
              'stable_dense_gap_mean':float(baseline_gap[~changed].mean()) if (~changed).any() else None,
              'prune_seconds':s['prune']['seconds'],'elapsed_seconds':s['elapsed_seconds']}
         rows.append(row)
-        details[tag]={'choice_histogram':votes,'top_score_contributions':sorted(contributions,key=lambda x:abs(x['signed_score_delta']),reverse=True),
+        details[tag]={'choice_histogram':votes,'expected_dimension_scores':expected_dimensions,
+                      'balanced_type':balanced_type,'balanced_dimension_scores':balanced_dimensions,
+                      'top_score_contributions':sorted(contributions,key=lambda x:abs(x['signed_score_delta']),reverse=True),
                       'layer_jsd':layer_js[tag],'generation_probe':s['generation_probe'],
                       'block_reconstruction':s['prune']['block_reconstruction']}
     write_csv(outdir/'comparison.csv',rows);write_csv(outdir/'item_deltas.csv',item_rows)
@@ -156,6 +190,8 @@ def main():
     if compare_tags:
         lines+=['','![50% 层级偏移](layer_jsd_50.png)','','![50% 维度分数](dimension_scores_50.png)']
     lines+=['','逐题可审计分解见 `item_deltas.csv`，逐层和生成原文见 `analysis.json`。',
+            '常量回答对照见 `response_controls.json`：当前题目方向下，全选 A/B/C 是 ENFJ，全选 E/F/G 是 ISTP。',
+            '`soft_*` 是选项概率加权的期望分数；`balanced_*` 是正/负向题分别取均值再相减的事后敏感性分析。二者不替代原协议分数，也不是验证过的新量表。',
             '随机方法误差棒仅为 3 个掩码种子的标准差，不是人群/模型家族置信区间。',
             '局部 scope 消融的总删除参数不同，不能直接当等预算方法排名。','']
     (outdir/'RESULTS.md').write_text('\n'.join(lines))
