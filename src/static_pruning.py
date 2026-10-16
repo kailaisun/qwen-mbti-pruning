@@ -12,7 +12,10 @@ import time
 
 import torch
 
-from run_experiment import linear_targets
+def linear_targets(model):
+    """All Linear layers except the LM head (embeddings/norms untouched)."""
+    return [(n, m) for n, m in model.named_modules()
+            if isinstance(m, torch.nn.Linear) and "lm_head" not in n]
 
 
 def selected(name, scope, layer_count):

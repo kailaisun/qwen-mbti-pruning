@@ -1,7 +1,7 @@
 # Qwen2.5-7B 静态剪枝扩展实验（v3）
 
 状态：64/64 组已完成并通过校验（2026-10-14）。最终分析见 `PRUNING_REPORT.md`。
-原有 `REPORT.md` / `outputs/corrected_v2` 保留，不覆盖。
+仓库当前版本只收录 v3 的代码、报告与实验结果。
 
 ## 预先确定的实验矩阵
 
@@ -28,7 +28,7 @@ SparseGPT 用精确个数掩码替代上游阈值的边界多剪；实际 masked
 校准不使用 MBTI 题目、答案或测试集。
 
 每组运行全部 60 个 MBTI 条目；49 个参与四维分数，11 个 A/T 条目不参与类型。
-保持 v2 的 native-final-logits 评估，不重复 final norm；零分记 `?`。
+使用 native-final-logits 评估，不重复 final norm；零分记 `?`。
 额外保存层级概率、逐题答案、合法选项总概率质量、非受限首 token、6 道固定题的自由生成。
 
 ## 结论依据

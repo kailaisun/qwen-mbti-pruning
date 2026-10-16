@@ -85,17 +85,6 @@ def main():
                          'negative':sum(it['trait']==d and it['dir']==-1 for it in items)} for d in AXES},
         'constant_answers':controls},indent=2))
     base,bz,bc=runs['dense-s00'];bp=softmax(bz);bfinal=bp[:,-1]
-    repeat_controls=[]
-    for tag,oldtag in [('dense-s00','qwen25-7b-fp16'),('magnitude-s50','qwen25-7b-prune-u50'),
-                       ('magnitude-s50-drop2of4','qwen25-7b-prune-2to4')]:
-        previous=ROOT/'outputs/corrected_v2'/oldtag/'results.npz'
-        if tag in runs and previous.exists():
-            old=np.load(previous)['opt_logits'];new=runs[tag][1]
-            repeat_controls.append({'tag':tag,'previous':str(previous.relative_to(ROOT)),
-                'max_abs_logit_difference':float(np.abs(old-new).max()),
-                'matching_final_choices':int((old[:,-1].argmax(-1)==new[:,-1].argmax(-1)).sum()),
-                'note':'Cross-run FP16 regression, not a claim of bitwise identity'})
-    (outdir/'repeat_controls.json').write_text(json.dumps(repeat_controls,indent=2))
     factorial_tags=['dense-s00','magnitude-s50-attention','magnitude-s50-mlp','magnitude-s50']
     if all(tag in runs for tag in factorial_tags):
         summaries=[runs[tag][0] for tag in factorial_tags]

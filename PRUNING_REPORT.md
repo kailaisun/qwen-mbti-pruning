@@ -208,10 +208,9 @@ Wanda 50% 的三种校准采样均为 ENFJ，PPL **17.11–17.23**，
   不能直接视为造成类型变化的因果层。
 - 选项最大 logit 完全并列时按 A–G 顺序取首项（dense 有 2 题）；这与维度零分记 `?`
   是不同的规则。CSV 记录并列数，不把并列题视为强偏好。
-- v2 与 v3 的 dense、幅值 50%、2-of-4 幅值三组均为 60/60 最终答案一致；
-  原始 FP16 logits 最大绝对差分别约 0.094 / 0.125 / 0.086，不承诺跨运行逐 bit 相同。
+- FP16 浮点计算可能有跨运行数值差异，不承诺逐 bit 相同。
 - 本次未保存 64 份完整 FP16 权重；代码、种子、校准抽样、权重 revision、掩码哈希
-  和原始测评输出均保留，可按配置重建。上一轮两个剪枝 checkpoint 仍在本机保存。
+  和原始测评输出均保留，可按配置重建。
 
 ## 文件
 
@@ -220,5 +219,4 @@ Wanda 50% 的三种校准采样均为 ENFJ，PPL **17.11–17.23**，
 - [`analysis.json`](outputs/pruning_v3/analysis.json)：分层 JSD、生成原文、局部重建误差。
 - [`response_controls.json`](outputs/pruning_v3/response_controls.json)：题目方向计数与常量回答控制。
 - [`interaction_controls.json`](outputs/pruning_v3/interaction_controls.json)：掩码一致性及 attention×MLP 交互计算。
-- [`repeat_controls.json`](outputs/pruning_v3/repeat_controls.json)：与上一轮三个对应配置的数值/答案回归对照。
 - 每个配置的 `summary.json` / `results.npz`：原始结果、实际稀疏率、溯源信息及 60×29×7 logits。

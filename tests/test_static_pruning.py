@@ -9,8 +9,18 @@ from transformers import Qwen2Config, Qwen2ForCausalLM
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
 from static_pruning import (exact_mask, make_mask, sparsegpt_weight, capture_block_inputs,
                             block_forward, prune_datafree, prune_calibrated, selected)
-from run_experiment import prune_static_
 from run_pruning_sweep import experiment_matrix
+
+
+def reference_magnitude_weight(weight,ratio,drop_n=0):
+    """Independent Python-sort oracle, including flat-index tie breaking."""
+    groups=weight.reshape(-1,4) if drop_n else weight.reshape(1,-1)
+    mask=torch.zeros_like(groups,dtype=torch.bool)
+    for row,values in enumerate(groups.abs().tolist()):
+        order=sorted(range(len(values)),key=lambda index:(values[index],index))
+        count=drop_n if drop_n else int(len(values)*ratio)
+        mask[row,order[:count]]=True
+    return weight.masked_fill(mask.reshape_as(weight),0)
 
 
 class StaticPruningTests(unittest.TestCase):
@@ -73,17 +83,31 @@ class StaticPruningTests(unittest.TestCase):
         self.assertEqual(len(matrix),64)
         self.assertEqual(len({c['tag'] for c in matrix}),64)
 
-    def test_datafree_matches_v2_and_preserves_other_parameters(self):
-        import copy
+    def test_datafree_matches_reference_and_preserves_other_parameters(self):
         torch.manual_seed(21)
         cfg=Qwen2Config(vocab_size=32,hidden_size=16,intermediate_size=32,
                         num_hidden_layers=2,num_attention_heads=4,num_key_value_heads=2)
-        for pattern,drop in [('unstructured',0),('2to4',2)]:
-            model=Qwen2ForCausalLM(cfg).eval();reference=copy.deepcopy(model)
-            prune_static_(reference,pattern,.5)
-            prune_datafree(model,'magnitude',.5,drop_n=drop)
-            for actual,expected in zip(model.parameters(),reference.parameters()):
-                torch.testing.assert_close(actual,expected,rtol=0,atol=0)
+        for tied in [False,True]:
+            for drop in [0,1,2,3]:
+                with self.subTest(tied=tied,drop_n=drop):
+                    model=Qwen2ForCausalLM(cfg).eval()
+                    eligible={name for name,p in model.named_parameters()
+                              if name.endswith('.weight') and p.ndim==2
+                              and ('.self_attn.' in name or '.mlp.' in name)}
+                    if tied:
+                        with torch.no_grad():
+                            for name,p in model.named_parameters():
+                                if name in eligible:
+                                    p.copy_((torch.arange(p.numel()).reshape_as(p)%5-2).to(p.dtype))
+                    original={name:p.detach().clone() for name,p in model.named_parameters()}
+                    ratio=drop/4 if drop else .5
+                    stats,_=prune_datafree(model,'magnitude',ratio,drop_n=drop)
+                    self.assertEqual(len(stats),14)
+                    self.assertEqual({x['name']+'.weight' for x in stats},eligible)
+                    for name,actual in model.named_parameters():
+                        expected=(reference_magnitude_weight(original[name],ratio,drop)
+                                  if name in eligible else original[name])
+                        torch.testing.assert_close(actual,expected,rtol=0,atol=0)
 
     def test_calibrated_model_masks_and_scope_partition(self):
         torch.manual_seed(25)

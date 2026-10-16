@@ -18,8 +18,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from mbti_common import (OPTIONS, PROTOCOL_VERSION, build_prompt, dump_results,
                          layer_metrics, load_items, option_token_ids, run_items_eval, score_mbti)
-from static_pruning import prune_calibrated, prune_datafree
-from run_experiment import linear_targets
+from static_pruning import linear_targets, prune_calibrated, prune_datafree
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = 'Qwen/Qwen2.5-7B-Instruct'
@@ -99,7 +98,7 @@ def main():
     if args.smoke and 'smoke' not in outdir.name: ap.error('smoke requires smoke output directory')
     outdir.mkdir(parents=True,exist_ok=True)
     sources = [ROOT/x for x in ['src/run_pruning_sweep.py','src/static_pruning.py','src/mbti_common.py',
-                                'src/run_experiment.py','data/mbti_items.json','data/pruning_corpus_manifest.json']]
+                                'data/mbti_items.json','data/pruning_corpus_manifest.json']]
     hashes = {str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}
     pending = []
     for cfg in configs:
