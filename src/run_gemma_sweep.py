@@ -20,13 +20,13 @@ from mbti_common import layer_metrics, load_items, option_token_ids, score_mbti
 from run_pruning_sweep import experiment_matrix
 from gemma_pruning import (linear_targets, prune_calibrated, prune_datafree,
                            text_model, verify_block_replay)
-from gemma_eval import (generation_probe, language_eval, prepend_bos,
+from gemma_eval import (assistant_language_eval, generation_probe, language_eval, prepend_bos,
                         prompt_provenance, run_items_eval)
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = 'google/gemma-4-12B-it'
 REVISION = '707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7'
-PROTOCOL = '3.2-gemma-bos-native-answer-logits'
+PROTOCOL = '3.3-gemma-dual-ppl-native-answer-logits'
 
 
 def save_result(outdir, tag, summary, logits):
@@ -147,10 +147,11 @@ def main():
         label, dimensions = score_mbti(items, res['choices'])
         metrics = layer_metrics(res['opt_logits'])
         quality = language_eval(model, test, tokenizer.bos_token_id)
+        assistant_quality = assistant_language_eval(model, tokenizer, test)
         generations = generation_probe(model, tokenizer, items)
         full_zeros = sum(int((module.weight == 0).sum()) for _, module in targets)
         summary = {
-            'protocol_version': PROTOCOL, 'sweep_version': '3.2-gemma', 'sweep_config': cfg,
+            'protocol_version': PROTOCOL, 'sweep_version': '3.3-gemma', 'sweep_config': cfg,
             'tag': cfg['tag'], 'model': MODEL, 'dtype': 'bfloat16', 'smoke': args.smoke, 'n_items': 60,
             'predicted_mbti': label, 'dichotomies': dimensions,
             'per_item_choices': {str(it['id']): c for it, c in zip(items, res['choices'])},
@@ -159,7 +160,8 @@ def main():
             'mean_option_probability_mass': float(np.mean([d['option_probability_mass'] for d in res['diagnostics']])),
             'unconstrained_option_rate': float(np.mean([d['unconstrained_top_is_option'] for d in res['diagnostics']])),
             'native_projection_max_abs_error': max(d['native_projection_max_abs_error'] for d in res['diagnostics']),
-            'language_eval': quality, 'generation_probe': generations,
+            'language_eval': quality, 'assistant_language_eval': assistant_quality,
+            'generation_probe': generations,
             'prune': {'per_layer': stats, 'block_reconstruction': errors, 'seconds': pruning_seconds,
                       'total_model_parameters': total_count, 'eligible_parameters': target_count,
                       'targeted_parameters': sum(s['numel'] for s in stats),
@@ -179,7 +181,7 @@ def main():
                            'prompt': prompt_info, 'unpruned_block_replay': verification,
                            'smoke_pruned_block_replay': replay}}
         save_result(outdir, cfg['tag'], summary, res['opt_logits'])
-        print(f"[complete] {cfg['tag']} {label} PPL={quality['perplexity']:.4f} sec={time.time()-t0:.1f}", flush=True)
+        print(f"[complete] {cfg['tag']} {label} raw_PPL={quality['perplexity']:.4f} assistant_PPL={assistant_quality['perplexity']:.4f} sec={time.time()-t0:.1f}", flush=True)
         gc.collect(); torch.cuda.empty_cache()
     print('GEMMA_SWEEP_SUBSET_COMPLETE', datetime.now(timezone.utc).isoformat(), flush=True)
 

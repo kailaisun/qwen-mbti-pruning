@@ -19,9 +19,10 @@ import torch.nn.functional as F
 from mbti_common import OPTIONS, build_prompt, collapse_options, option_token_ids
 
 
-PROTOCOL_VERSION = "3.2-gemma-bos-native-answer-logits"
+PROTOCOL_VERSION = "3.3-gemma-dual-ppl-native-answer-logits"
 ANSWER_PREFIX = "<|turn>model\n<|channel>thought\n<channel|>"
 PROBE_INDICES = (0, 9, 19, 29, 39, 49)
+CONTINUATION_INSTRUCTION = "Continue the following encyclopedia passage. Output only the passage."
 
 
 def _sha256(text):
@@ -187,6 +188,73 @@ def language_eval(model, test_tokens, bos_token_id=2):
             "Short-context subset, not a full benchmark or chat-quality score; this "
             "instruction-tuned model has a known high raw-continuation baseline. "
             "Compare pruning only with this model's identically evaluated dense baseline."
+        ),
+    }
+
+
+def continuation_prefix(tokenizer):
+    """The fixed auxiliary native-assistant condition, not an MBTI prompt."""
+    prefix = tokenizer.apply_chat_template(
+        [{"role": "user", "content": CONTINUATION_INSTRUCTION}],
+        tokenize=False, add_generation_prompt=True, enable_thinking=False,
+    )
+    if not isinstance(prefix, str) or not prefix.endswith(ANSWER_PREFIX):
+        raise ValueError("continuation template lacks the closed-thought answer prefix")
+    if not tokenizer.bos_token or not prefix.startswith(tokenizer.bos_token):
+        raise ValueError("native continuation template must include its own BOS")
+    return prefix
+
+
+@torch.inference_mode()
+def assistant_language_eval(model, tokenizer, test_tokens):
+    """Uniform auxiliary continuation diagnostic; raw PPL remains unchanged.
+
+    This condition was fixed after the input-format preflight and is applied
+    to all 64 treatments, not selected per method. Raw tokens are appended to
+    the native nonthinking assistant prefix without re-tokenizing a string
+    boundary. Only the same original raw[1:] targets are scored. Calibration
+    remains explicit-BOS raw text and never uses this auxiliary chat prefix.
+    """
+    if not isinstance(test_tokens, torch.Tensor) or test_tokens.ndim != 2:
+        raise ValueError("test tokens must be a [blocks, raw sequence] tensor")
+    if test_tokens.shape[0] == 0 or test_tokens.shape[1] < 2:
+        raise ValueError("PPL requires nonempty blocks with at least two raw tokens")
+    if test_tokens.dtype not in (torch.int32, torch.int64):
+        raise ValueError("raw tokens must use an integer token-ID dtype")
+    if bool((test_tokens[:, 0] == tokenizer.bos_token_id).any()):
+        raise ValueError("auxiliary continuation expects raw blocks without a BOS prefix")
+    prefix_text = continuation_prefix(tokenizer)
+    prefix_ids = tokenizer.encode(prefix_text, add_special_tokens=False)
+    if not prefix_ids or prefix_ids[0] != tokenizer.bos_token_id:
+        raise ValueError("native continuation token sequence must begin with BOS")
+    prefix = test_tokens.new_tensor(prefix_ids).unsqueeze(0)
+    prefix_len = len(prefix_ids)
+    losses = []
+    for raw in test_tokens:
+        inputs = torch.cat((prefix, raw.unsqueeze(0)), dim=1)
+        output = model(inputs, use_cache=False)
+        if output.logits.ndim != 3 or output.logits.shape[:2] != inputs.shape:
+            raise ValueError("auxiliary PPL requires logits at every prefixed input position")
+        loss = F.cross_entropy(output.logits[0, prefix_len:-1].float(), raw[1:].long(), reduction="mean")
+        losses.append(float(loss))
+    nll = sum(losses) / len(losses)
+    if not math.isfinite(nll):
+        raise ValueError("non-finite Gemma native-assistant continuation loss")
+    targets = int(test_tokens.shape[1]) - 1
+    return {
+        "mean_nll": nll, "perplexity": math.exp(nll), "block_nll": losses,
+        "predicted_tokens": len(losses) * targets,
+        "condition": "native_assistant_continuation",
+        "prefix_text": prefix_text, "prefix_token_ids": prefix_ids,
+        "prefix_sha256": _sha256(prefix_text), "prefix_length": prefix_len,
+        "input_sequence_length": prefix_len + int(test_tokens.shape[1]),
+        "scored_targets_per_sequence": targets, "enable_thinking": False,
+        "description": (
+            "Uniform auxiliary WikiText-2 continuation under a fixed native nonthinking assistant "
+            "prefix, chosen after format preflight and applied to every treatment. Score identical "
+            "original raw[1:] targets; this changes conditioning and supplements, never replaces, "
+            "the frozen explicit-BOS raw-continuation metric. Calibration remains raw text with BOS. "
+            "Short-context subset, not a full benchmark or an overall chat-capability score."
         ),
     }
 

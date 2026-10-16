@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -25,7 +26,7 @@ from run_pruning_sweep import experiment_matrix
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = "google/gemma-4-12B-it"
 REVISION = "707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7"
-PROTOCOL = "3.2-gemma-bos-native-answer-logits"
+PROTOCOL = "3.3-gemma-dual-ppl-native-answer-logits"
 
 
 def require(condition, message):
@@ -37,12 +38,48 @@ def write_json(path, payload):
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False) + "\n")
 
 
+def validate_language_losses(quality, context):
+    require(quality["predicted_tokens"] == 8160 and len(quality["block_nll"]) == 32,
+            f"{context}: expected 32 test blocks / 8160 prediction targets")
+    require(np.isfinite(quality["block_nll"]).all(), f"{context}: non-finite test loss")
+    require(math.isclose(np.mean(quality["block_nll"]), quality["mean_nll"], rel_tol=1e-7),
+            f"{context}: NLL does not reconstruct from blocks")
+    require(math.isclose(math.exp(quality["mean_nll"]), quality["perplexity"], rel_tol=1e-7),
+            f"{context}: PPL does not reconstruct from NLL")
+
+
+def assistant_condition_metadata(quality):
+    return {key: quality[key] for key in (
+        "condition", "prefix_text", "prefix_token_ids", "prefix_sha256", "prefix_length",
+        "input_sequence_length", "scored_targets_per_sequence", "predicted_tokens", "enable_thinking")}
+
+
+def validate_assistant_language_eval(quality, context):
+    require(isinstance(quality, dict), f"{context}: missing assistant_language_eval")
+    require(quality.get("condition") == "native_assistant_continuation" and
+            quality.get("enable_thinking") is False,
+            f"{context}: expected non-thinking native assistant continuation condition")
+    prefix_text = quality.get("prefix_text")
+    prefix_ids = quality.get("prefix_token_ids")
+    require(isinstance(prefix_text, str) and prefix_text and
+            isinstance(prefix_ids, list) and prefix_ids and
+            all(isinstance(token, int) and token >= 0 for token in prefix_ids) and prefix_ids[0] == 2,
+            f"{context}: malformed assistant prefix text/token IDs or missing BOS")
+    require(quality.get("prefix_sha256") == hashlib.sha256(prefix_text.encode("utf-8")).hexdigest(),
+            f"{context}: assistant prefix hash mismatch")
+    require(quality.get("prefix_length") == len(prefix_ids) and
+            quality.get("input_sequence_length") == len(prefix_ids) + 256 and
+            quality.get("scored_targets_per_sequence") == 255,
+            f"{context}: assistant prefix length or original-target alignment mismatch")
+    validate_language_losses(quality, context)
+
+
 def read_run(folder, items):
     summary = json.loads((folder / "summary.json").read_text())
     require(not summary["smoke"] and summary["n_items"] == len(items) == 60,
             f"{folder}: full 60-item non-smoke run required")
     require(summary["protocol_version"] == PROTOCOL, f"{folder}: incompatible protocol")
-    require(summary["sweep_version"] == "3.2-gemma", f"{folder}: incompatible sweep")
+    require(summary["sweep_version"] == "3.3-gemma", f"{folder}: incompatible sweep")
     require(summary["model"] == MODEL, f"{folder}: wrong model")
     require(summary["dtype"] == "bfloat16", f"{folder}: expected bfloat16")
     require(summary["provenance"]["model_revision"] == REVISION, f"{folder}: wrong revision")
@@ -78,13 +115,8 @@ def read_run(folder, items):
     require(quality.get("input_sequence_length") == 257 and
             quality.get("scored_targets_per_sequence") == 255,
             f"{folder}: expected BOS + 256 raw tokens but only the original 255 prediction targets")
-    require(quality["predicted_tokens"] == 8160 and len(quality["block_nll"]) == 32,
-            f"{folder}: expected 32 test blocks / 8160 prediction targets")
-    require(np.isfinite(quality["block_nll"]).all(), f"{folder}: non-finite test loss")
-    require(math.isclose(np.mean(quality["block_nll"]), quality["mean_nll"], rel_tol=1e-7),
-            f"{folder}: NLL does not reconstruct from blocks")
-    require(math.isclose(math.exp(quality["mean_nll"]), quality["perplexity"], rel_tol=1e-7),
-            f"{folder}: PPL does not reconstruct from NLL")
+    validate_language_losses(quality, f"{folder}: raw language_eval")
+    validate_assistant_language_eval(summary.get("assistant_language_eval"), f"{folder}: assistant_language_eval")
     require(len(summary["generation_probe"]) == 6 and len(summary["diagnostics"]) == 60,
             f"{folder}: incomplete generation/option diagnostics")
     mass = np.asarray([row["option_probability_mass"] for row in summary["diagnostics"]])
@@ -163,14 +195,18 @@ def interaction_control(runs):
     require(set(split_masks[0]).isdisjoint(split_masks[1]), "Factorial scopes overlap")
     require({**split_masks[0], **split_masks[1]} == all_masks, "Factorial masks differ")
     losses = [s["language_eval"]["mean_nll"] for s in summaries]
+    assistant_losses = [s["assistant_language_eval"]["mean_nll"] for s in summaries]
     return {
         "complete": True,
         "type": "Post-hoc fixed-mask attention x MLP 2x2 factorial on held-out mean NLL",
         "masks_verified_disjoint_and_union_equal": True,
-        "treatments": {tag: {"mean_nll": loss, "ppl": runs[tag][0]["language_eval"]["perplexity"]}
+        "treatments": {tag: {"mean_nll": loss, "ppl": runs[tag][0]["language_eval"]["perplexity"],
+                             "assistant_mean_nll": runs[tag][0]["assistant_language_eval"]["mean_nll"],
+                             "assistant_ppl": runs[tag][0]["assistant_language_eval"]["perplexity"]}
                        for tag, loss in zip(tags, losses)},
         "interaction_nats_per_token": losses[3] - losses[1] - losses[2] + losses[0],
-        "interpretation": "L(all)-L(attention)-L(MLP)+L(dense); fixed-model/corpus diagnostic, no significance claim",
+        "assistant_interaction_nats_per_token": assistant_losses[3] - assistant_losses[1] - assistant_losses[2] + assistant_losses[0],
+        "interpretation": "L(all)-L(attention)-L(MLP)+L(dense), separately within raw BOS and assistant conditions; fixed-model/corpus diagnostic, no significance claim",
         "scope": "Magnitude only; activation-dependent Wanda masks need not match across scopes",
     }
 
@@ -193,6 +229,9 @@ def derive_rows(configs, runs, items):
                 f"{tag}: corpus provenance differs from baseline")
         require(summary["provenance"].get("prompt") == baseline["provenance"].get("prompt"),
                 f"{tag}: prompt provenance differs from baseline")
+        require(assistant_condition_metadata(summary["assistant_language_eval"]) ==
+                assistant_condition_metadata(baseline["assistant_language_eval"]),
+                f"{tag}: assistant continuation condition differs from baseline")
         require(logits.shape == baseline_logits.shape, f"{tag}: layer shape differs")
         # No embedding/final norm/head pruning: the embedding-only lens is a
         # useful invariant for identical prompt templates and restored weights.
@@ -253,6 +292,9 @@ def derive_rows(configs, runs, items):
             "ppl": summary["language_eval"]["perplexity"],
             "ppl_ratio": summary["language_eval"]["perplexity"] / baseline["language_eval"]["perplexity"],
             "test_nll_delta": summary["language_eval"]["mean_nll"] - baseline["language_eval"]["mean_nll"],
+            "assistant_ppl": summary["assistant_language_eval"]["perplexity"],
+            "assistant_ppl_ratio": summary["assistant_language_eval"]["perplexity"] / baseline["assistant_language_eval"]["perplexity"],
+            "assistant_nll_delta": summary["assistant_language_eval"]["mean_nll"] - baseline["assistant_language_eval"]["mean_nll"],
             "option_mass": summary["mean_option_probability_mass"],
             "legal_first_token_rate": summary["unconstrained_option_rate"],
             "strict_generation_rate": float(np.mean([p["strict_single_letter"] for p in summary["generation_probe"]])),
@@ -270,31 +312,38 @@ def derive_rows(configs, runs, items):
             "balanced_type": balanced_type, "balanced_dimension_scores": balanced_dimensions,
             "top_score_contributions": sorted(contributions, key=lambda r: abs(r["signed_score_delta"]), reverse=True),
             "layer_jsd": divergence.mean(0).tolist(), "generation_probe": summary["generation_probe"],
+            "language_eval": summary["language_eval"],
+            "assistant_language_eval": summary["assistant_language_eval"],
             "block_reconstruction": summary["prune"]["block_reconstruction"],
         }
     return rows, item_rows, details
 
 
 def plot_results(outdir, rows, details, layers):
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+    plot_keys = ("agreement_60", "ppl_ratio", "assistant_ppl_ratio",
+                 "option_mass", "neutral_D_fraction", "legal_first_token_rate")
     for method in METHODS:
         subset = [r for r in rows if r["method"] == method and r["scope"] == "all"
                   and not r["drop_n_of_4"] and not r["calibration_seed"]]
         ratios = sorted({r["requested_ratio"] for r in subset})
         if not ratios:
             continue
-        for ax, key in zip(axes.flat, ("agreement_60", "ppl_ratio", "option_mass", "neutral_D_fraction")):
+        for ax, key in zip(axes.flat, plot_keys):
             values = [[r[key] for r in subset if r["requested_ratio"] == ratio] for ratio in ratios]
             means = np.array([np.mean(value) for value in values])
             low = means - np.array([min(value) for value in values])
             high = np.array([max(value) for value in values]) - means
             ax.errorbar(np.array(ratios) * 100, means, yerr=np.maximum([low, high], 0),
                         marker="o", capsize=3, label=method)
-    for ax, key in zip(axes.flat, ("agreement_60", "ppl_ratio", "option_mass", "neutral_D_fraction")):
+    for ax, key in zip(axes.flat, plot_keys):
         ax.set_xlabel("Requested eligible-weight sparsity (%)")
         ax.set_ylabel(key)
         ax.grid(alpha=.25)
     axes[0, 1].set_yscale("log")
+    axes[0, 1].set_ylabel("Raw BOS PPL / own dense")
+    axes[0, 2].set_yscale("log")
+    axes[0, 2].set_ylabel("Assistant-conditioned PPL / own dense")
     # A severely pruned BF16 model may have numerically zero option mass.
     # Symlog includes those actual zeros without silently clipping the data.
     axes[1, 0].set_yscale("symlog", linthresh=1e-12)
@@ -369,6 +418,7 @@ def write_cross_model(outdir, rows, qwen_dir):
              "PPL 倍数 = 剪枝模型 PPL / 同模型 dense PPL；回答改变率也分别相对各自 dense 回答。",
              "Gemma 与 Qwen 的 tokenizer、token 边界、实际文本覆盖范围、模型结构与原生 chat 模板不同；因此不比较绝对 PPL，倍数也仅是本协议内的稳健性诊断，不是模型综合能力排名。",
              "Gemma 原文校准与 PPL 输入为显式 BOS（ID 2）+ 256 原始 token；PPL 仍只评分每段原始位置 1–255，排除 BOS→首个原始 token。Qwen 原协议未改动。",
+             "本表仅比较原文 PPL：Gemma 另有 assistant 前缀条件下的辅助 PPL，但 Qwen 没有对应数据，故不混入跨模型表。该辅助条件不是公平的通用语言能力基准。",
              "Gemma 在有效 chat 模板下能正常回答，也可能在无 chat 包装的原文续写上出现较高 PPL；不能据此将原文 PPL 或其倍数当作通用能力排名，PPL 下降也不自动意味着人格或对话能力改善。",
              "Gemma 使用 BF16，既有 Qwen 使用 FP16；模型大小也不同。跨家族差异不是控制所有变量后的因果结论。", "",
              "| 配置 | Gemma PPL 倍数 | Qwen PPL 倍数 | Gemma 回答改变 | Qwen 回答改变 | Gemma / Qwen 类型 |",
@@ -383,17 +433,20 @@ def write_cross_model(outdir, rows, qwen_dir):
 
 
 def write_markdown(outdir, rows, missing, layers, compare_tags):
-    header = "| 配置 | 类型 | EI/NS/FT/JP | 一致题数 | PPL | PPL / dense | 合法首 token | D 比例 |"
-    separator = "|---|---|---|---:|---:|---:|---:|---:|"
+    header = "| 配置 | 类型 | EI/NS/FT/JP | 一致题数 | 原文 PPL | 原文倍数 | Assistant PPL | Assistant 倍数 | 合法首 token | D 比例 |"
+    separator = "|---|---|---|---:|---:|---:|---:|---:|---:|---:|"
     def line(row):
         return (f"| {row['tag']} | {row['mbti']} | {'/'.join(str(row[d]) for d in AXES)} | "
                 f"{round(row['agreement_60'] * 60)}/60 | {row['ppl']:.3f} | {row['ppl_ratio']:.3f} | "
+                f"{row['assistant_ppl']:.3f} | {row['assistant_ppl_ratio']:.3f} | "
                 f"{row['legal_first_token_rate']:.1%} | {row['neutral_D_fraction']:.1%} |")
     lines = ["# Gemma 4 12B 静态剪枝：完整结果表", "",
              f"已验证 {len(rows)}/64 组。" + ("全部完成。" if not missing else "尚未完成，不作最终排名。"), "",
              "仅文本输入、语言层静态剪枝；模型版本、语料哈希、掩码哈希保存在每组 summary.json。",
              "PPL 为 WikiText-2 test 开头 32 × 256 原始 token 短上下文子集；每段显式前置 BOS（ID 2），模型输入长度 257。",
              "只评分原始 token 的位置 1–255（logits[1:-1] 对齐 raw_tokens[1:]），不评分 BOS→首个原始 token；共 8,160 个预测位置，不是完整基准。原始语料文件未修改，校准输入同样前置 BOS。",
+             "所有 64 组另测 Assistant PPL：仅将同一批测试原文放在固定原生非思考 assistant 前缀之后，仍评分完全相同的 8,160 个原始目标。前缀不计分，不改变原文 BOS 校准；文本/IDs/哈希保存在 assistant_language_eval。",
+             "两种 PPL 倍数分别相对同一条件下的 dense 基线，不能交叉作分母。Assistant PPL 是前缀条件敏感性诊断，不是标准基准、对话正确率或跨模型公平排名。",
              "一致率相对 Gemma 自身 dense 回答，不是正确率或真实人格保持率；零分 `?` 表示未确定方向。",
              "自由生成只有 6 个固定探针。原生回答位置的首 token 合法率与整段自由生成是不同诊断。", "", header, separator]
     lines.extend(line(row) for row in rows)
@@ -407,10 +460,11 @@ def write_markdown(outdir, rows, missing, layers, compare_tags):
               "随机曲线为种子均值，误差棒为已完成种子的最小–最大范围，不是置信区间。",
               "局部 scope 的删除预算不相同；稀疏权重保存在 dense 张量中，不声称部署加速。",
               "原文续写与原生 chat 是不同输入分布：即使补足必需 BOS，较高原文 PPL 仍可与正常的简单 chat 回答并存。当前 PPL 仅作固定协议诊断，不作模型综合能力排名；PPL 下降也不必然意味着问卷/对话能力改善。",
-              "早期无 BOS 的 smoke/诊断不纳入这 64 组正式结果，也不能混用为 dense 基线。",
+              "早期无 BOS 的 smoke、仅原文 PPL 的协议 3.2 预检查均不纳入协议 3.3 的 64 组正式结果，也不能混用为 dense 基线。",
               "[结构/位置/种子消融](ABLATIONS.md)；[跨模型相对自身基线对照](CROSS_MODEL.md)。", ""]
     (outdir / "RESULTS.md").write_text("\n".join(lines))
-    ablations = ["# Gemma：结构、剪枝位置与种子", "", f"当前 {len(rows)}/64 组；完整性以 RESULTS.md 为准。", ""]
+    ablations = ["# Gemma：结构、剪枝位置与种子", "", f"当前 {len(rows)}/64 组；完整性以 RESULTS.md 为准。", "",
+                 "原文与 Assistant 两种 PPL 评分相同的 8,160 个原始目标，各自除以同条件 dense PPL；后者只是条件敏感性诊断，不是公平能力基准。", ""]
     groups = [
         ("4 元组约束：drop 表示每四个删除的数量", [r for r in rows if r["drop_n_of_4"]]),
         ("局部模块内 50%：不是等全模型删除预算", [r for r in rows if r["scope"] != "all"]),

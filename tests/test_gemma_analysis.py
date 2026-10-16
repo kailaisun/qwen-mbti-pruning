@@ -11,7 +11,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from analyze_gemma_sweep import (MODEL, PROTOCOL, REVISION, derive_rows, read_run,
-                                write_cross_model, write_csv, write_json)
+                                plot_results, write_cross_model, write_csv, write_json, write_markdown)
 from mbti_common import OPTIONS, layer_metrics, load_items, score_mbti
 from run_pruning_sweep import experiment_matrix
 
@@ -36,6 +36,7 @@ class GemmaAnalysisTests(unittest.TestCase):
         hashes = {str(item["id"]): hashlib.sha256(item["text"].encode()).hexdigest()
                   for item in self.items}
         prefix = "synthetic-answer-boundary"
+        assistant_prefix = "synthetic-assistant-continuation-prefix"
         probes = [
             {"item_id": self.items[index]["id"], "response": "B", "raw_response": "B<EOS>",
              "generated_token_ids": [10, 2], "strict_single_letter": True,
@@ -50,7 +51,7 @@ class GemmaAnalysisTests(unittest.TestCase):
         ]
         summary = {
             "tag": tag, "model": MODEL, "dtype": "bfloat16", "protocol_version": PROTOCOL,
-            "sweep_version": "3.2-gemma", "sweep_config": cfg, "smoke": False, "n_items": 60,
+            "sweep_version": "3.3-gemma", "sweep_config": cfg, "smoke": False, "n_items": 60,
             "predicted_mbti": label, "dichotomies": dimensions,
             "per_item_choices": {str(item["id"]): choice for item, choice in zip(self.items, choices)},
             "layer_entropy_mean": metrics["entropy_mean"].tolist(),
@@ -67,6 +68,14 @@ class GemmaAnalysisTests(unittest.TestCase):
                               "mean_nll": 2., "perplexity": math.exp(2),
                               "prefix": "explicit_bos", "bos_token_id": 2,
                               "input_sequence_length": 257, "scored_targets_per_sequence": 255},
+            "assistant_language_eval": {
+                "condition": "native_assistant_continuation", "enable_thinking": False,
+                "prefix_text": assistant_prefix, "prefix_token_ids": [2, 10, 11], "prefix_length": 3,
+                "prefix_sha256": hashlib.sha256(assistant_prefix.encode()).hexdigest(),
+                "input_sequence_length": 259, "scored_targets_per_sequence": 255,
+                "predicted_tokens": 8160, "block_nll": [1.] * 32,
+                "mean_nll": 1., "perplexity": math.exp(1.),
+            },
             "generation_probe": probes,
             "prune": {"per_layer": stats, "block_reconstruction": [], "seconds": 0.,
                       "total_model_parameters": 200, "eligible_parameters": 100,
@@ -134,6 +143,56 @@ class GemmaAnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "calibration.*BOS"):
             read_run(self.publish(summary, logits), self.items)
 
+    def test_assistant_condition_required_and_validated(self):
+        summary, logits = self.fixture()
+        del summary["assistant_language_eval"]
+        with self.assertRaisesRegex(ValueError, "missing assistant_language_eval"):
+            read_run(self.publish(summary, logits), self.items)
+        for field, invalid in (("condition", "raw"), ("enable_thinking", True),
+                               ("prefix_sha256", "incorrect"), ("prefix_token_ids", [1, 10, 11]),
+                               ("prefix_length", 4), ("input_sequence_length", 258),
+                               ("scored_targets_per_sequence", 256), ("predicted_tokens", 8192),
+                               ("perplexity", 100.)):
+            with self.subTest(field=field):
+                summary, logits = self.fixture()
+                summary["assistant_language_eval"][field] = invalid
+                with self.assertRaises(ValueError):
+                    read_run(self.publish(summary, logits), self.items)
+
+    def test_assistant_ratios_use_separate_dense_condition(self):
+        runs = {}
+        for tag in ("dense-s00", "wanda-s50"):
+            summary, logits = self.fixture(tag)
+            if tag != "dense-s00":
+                summary["assistant_language_eval"].update(
+                    block_nll=[3.] * 32, mean_nll=3., perplexity=math.exp(3.))
+            runs[tag] = read_run(self.publish(summary, logits), self.items)
+        configs = [self.configs[tag] for tag in runs]
+        rows, _, _ = derive_rows(configs, runs, self.items)
+        self.assertEqual(rows[1]["ppl_ratio"], 1.)
+        self.assertAlmostEqual(rows[1]["assistant_ppl_ratio"], math.exp(2.))
+        self.assertEqual(rows[1]["assistant_nll_delta"], 2.)
+        runs["wanda-s50"][0]["assistant_language_eval"]["prefix_text"] = "changed"
+        with self.assertRaisesRegex(ValueError, "assistant continuation condition differs"):
+            derive_rows(configs, runs, self.items)
+
+    def test_dual_ppl_plots_and_markdown(self):
+        runs = {}
+        for tag in ("dense-s00", "wanda-s50"):
+            summary, logits = self.fixture(tag)
+            runs[tag] = read_run(self.publish(summary, logits), self.items)
+        configs = [self.configs[tag] for tag in runs]
+        rows, _, details = derive_rows(configs, runs, self.items)
+        tags = plot_results(self.root, rows, details, 2)
+        write_markdown(self.root, rows, ["unfinished"], 2, tags)
+        for name in ("sparsity_tradeoffs.png", "layer_jsd_50.png", "dimension_scores_50.png"):
+            self.assertGreater((self.root / name).stat().st_size, 1000)
+        for name in ("RESULTS.md", "ABLATIONS.md"):
+            document = (self.root / name).read_text()
+            self.assertIn("Assistant PPL", document)
+            self.assertIn("原文 PPL", document)
+        self.assertIn("尚未完成", (self.root / "RESULTS.md").read_text())
+
     def test_special_tokens_make_letter_generation_invalid(self):
         summary, logits = self.fixture()
         probe = summary["generation_probe"][0]
@@ -195,6 +254,7 @@ class GemmaAnalysisTests(unittest.TestCase):
         self.assertEqual(matched[0]["qwen_answer_flip_rate"], .5)
         self.assertNotIn("gemma_ppl", matched[0])
         self.assertNotIn("qwen_ppl", matched[0])
+        self.assertFalse(any("assistant" in key for key in matched[0]))
 
 
 if __name__ == "__main__":

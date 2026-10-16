@@ -9,9 +9,10 @@ from transformers import (BatchEncoding, Gemma4UnifiedConfig, Gemma4UnifiedForCa
                           Gemma4UnifiedForConditionalGeneration, Gemma4UnifiedTextConfig)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from gemma_eval import (ANSWER_PREFIX, PROTOCOL_VERSION, apply_final_softcap, generation_probe,
-                       language_eval, prepend_bos, project_outputs, prompt_provenance,
-                       prompt_text, validate_option_tokens)
+from gemma_eval import (ANSWER_PREFIX, CONTINUATION_INSTRUCTION, PROTOCOL_VERSION,
+                       apply_final_softcap, assistant_language_eval, continuation_prefix,
+                       generation_probe, language_eval, prepend_bos, project_outputs,
+                       prompt_provenance, prompt_text, validate_option_tokens)
 from mbti_common import OPTIONS, build_prompt, collapse_options, option_token_ids
 
 
@@ -220,7 +221,7 @@ class GemmaEvalTests(unittest.TestCase):
         self.assertEqual(result["scored_targets_per_sequence"], 3)
         self.assertEqual(result["prefix"], "explicit_bos")
         self.assertEqual(result["bos_token_id"], 2)
-        self.assertEqual(PROTOCOL_VERSION, "3.2-gemma-bos-native-answer-logits")
+        self.assertEqual(PROTOCOL_VERSION, "3.3-gemma-dual-ppl-native-answer-logits")
         for inputs, original in zip(model.inputs, raw):
             torch.testing.assert_close(inputs[0, 1:], original, rtol=0, atol=0)
             self.assertEqual(int(inputs[0, 0]), 2)
@@ -236,6 +237,69 @@ class GemmaEvalTests(unittest.TestCase):
         self.assertEqual(result["predicted_tokens"], 8160)
         self.assertEqual(result["input_sequence_length"], 257)
         self.assertEqual(result["scored_targets_per_sequence"], 255)
+        self.assertAlmostEqual(result["perplexity"], 8.0, places=5)
+
+    def test_auxiliary_assistant_condition_preserves_targets_and_records_prefix(self):
+        class ContinuationTokenizer(FakeTokenizer):
+            bos_token = "<bos>"
+            bos_token_id = 2
+
+            def encode(self, text, add_special_tokens=False):
+                assert text.startswith("<bos>") and text.endswith(ANSWER_PREFIX)
+                assert CONTINUATION_INSTRUCTION in text
+                return [2, 11, 12, 13]
+
+        class OracleModel:
+            def __init__(self):
+                self.inputs = []
+
+            def __call__(self, inputs, use_cache=False):
+                self.inputs.append(inputs.clone())
+                logits = torch.zeros(*inputs.shape, 16)
+                for position in range(inputs.shape[1] - 1):
+                    logits[0, position, inputs[0, position + 1]] = 2.0
+                # Prefix and prefix-to-first-raw losses must not be scored.
+                logits[:, :4, :] = 0
+                logits[:, :4, 15] = 40
+                return SimpleNamespace(logits=logits)
+
+        tokenizer = ContinuationTokenizer()
+        model = OracleModel()
+        raw = torch.tensor([[3, 4, 5, 6], [7, 8, 9, 10]])
+        result = assistant_language_eval(model, tokenizer, raw)
+        expected = float(torch.nn.functional.cross_entropy(
+            torch.tensor([[0., 0., 2.] + [0.] * 13]), torch.tensor([2])))
+        self.assertAlmostEqual(result["mean_nll"], expected, places=6)
+        self.assertEqual(result["predicted_tokens"], 6)
+        self.assertEqual(result["scored_targets_per_sequence"], 3)
+        self.assertEqual(result["input_sequence_length"], 8)
+        self.assertEqual(result["condition"], "native_assistant_continuation")
+        self.assertEqual(result["prefix_token_ids"], [2, 11, 12, 13])
+        self.assertEqual(result["prefix_length"], 4)
+        self.assertEqual(result["prefix_text"], continuation_prefix(tokenizer))
+        self.assertEqual(len(result["prefix_sha256"]), 64)
+        for inputs, block in zip(model.inputs, raw):
+            torch.testing.assert_close(inputs[0, 4:], block, rtol=0, atol=0)
+        with self.assertRaises(ValueError):
+            assistant_language_eval(model, tokenizer, prepend_bos(raw))
+
+    def test_auxiliary_assistant_full_target_budget(self):
+        class ContinuationTokenizer(FakeTokenizer):
+            bos_token = "<bos>"
+            bos_token_id = 2
+
+            def encode(self, text, add_special_tokens=False):
+                return [2, 4, 5, 6]
+
+        class UniformModel:
+            def __call__(self, inputs, use_cache=False):
+                return SimpleNamespace(logits=torch.zeros(*inputs.shape, 8))
+
+        result = assistant_language_eval(UniformModel(), ContinuationTokenizer(),
+                                         torch.full((32, 256), 3, dtype=torch.long))
+        self.assertEqual(result["predicted_tokens"], 8160)
+        self.assertEqual(result["scored_targets_per_sequence"], 255)
+        self.assertEqual(result["input_sequence_length"], 260)
         self.assertAlmostEqual(result["perplexity"], 8.0, places=5)
 
 

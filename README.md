@@ -1,10 +1,10 @@
-# Qwen2.5-7B 静态剪枝与 MBTI 评测（v3）
+# Qwen / Gemma 静态剪枝与 MBTI 评测（v3）
 
-论文方法的单模型复现实验：[arXiv:2608.25977v2](https://arxiv.org/html/2608.25977v2)。
-使用 Qwen2.5-7B-Instruct；不是论文中的 Qwen2.5-14B/72B 原表数值复现。
+论文方法的跨模型扩展实验：[arXiv:2608.25977v2](https://arxiv.org/html/2608.25977v2)。
+使用 Qwen2.5-7B-Instruct，并增加 Gemma 4-12B-it；不是原论文模型配置或表格数值的完全复现。
 仓库当前版本只收录 v3，包含无条件 60 题评测、逐层选项分布和多方法静态剪枝对照。
 
-## 多方法剪枝扩展（v3，已完成）
+## Qwen 多方法剪枝（v3，已完成）
 
 预先确定的 **64 组**实验见 [`EXPERIMENT_PLAN.md`](EXPERIMENT_PLAN.md)：
 magnitude、row-magnitude、随机剪枝、Wanda、SparseGPT，多比例 / 4 元组约束 / 模块与层段消融。
@@ -20,7 +20,40 @@ magnitude、row-magnitude、随机剪枝、Wanda、SparseGPT，多比例 / 4 元
 PPL 使用 WikiText-2 test 的 32 个 256-token 块，共 8,160 个预测目标，
 是固定短上下文子集诊断，不是完整标准基准。
 
-## 运行
+## Gemma 4-12B（v3 扩展）
+
+设计见 [`GEMMA_EXPERIMENT_PLAN.md`](GEMMA_EXPERIMENT_PLAN.md)。同样固定 64 组，
+独立保存到 `outputs/gemma4_12b_v3/`，不改写 Qwen 原始结果。
+目前已完成模型适配与 BOS 修正，正式实验采用统一的 raw/assistant-prefix 双指标。
+Gemma 使用原生 BF16、48 层、混合注意力和 K=V；只剪语言 decoder 的 attention/MLP 权重。
+原文校准及 PPL 输入显式加 BOS，评分目标仍为每段 255 个、共 8,160 个。
+Gemma 原文 PPL 的较高基线与正常聊天回答并存，不能作为跨模型能力排名；
+所有 Gemma 配置额外计算固定原生回答前缀下的条件 PPL，仍使用相同预测目标。
+两项指标都保留，不择优报告；跨模型仅列出各自原文指标相对 dense 的变化，
+并结合逐题答案、选项概率和自由生成判断。输入格式诊断与方案修改时间见实验计划。
+
+```bash
+# 使用 requirements-pruning.txt 对应环境；固定 revision，不能下载浮动 main 代替。
+python -c "from huggingface_hub import snapshot_download; snapshot_download('google/gemma-4-12B-it', revision='707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7')"
+# 首次准备；已有语料时会拒绝覆盖。脚本从本地缓存加载固定 tokenizer。
+python scripts/prepare_gemma_data.py
+# 先做单独 smoke，不混入正式矩阵：
+CUDA_VISIBLE_DEVICES=0 python -B src/run_gemma_sweep.py --smoke \
+  --outdir outputs/gemma_smoke_repeat --tags dense-s00 wanda-s50 sparsegpt-s50
+# 一张卡顺序运行全部 64 组，或指定 --tags 子集：
+CUDA_VISIBLE_DEVICES=0 python -B src/run_gemma_sweep.py --outdir outputs/gemma_repeat
+# 四张有充足空闲显存的卡、每卡两个进程（本轮为 H200；需自行检查资源）：
+GEMMA_GPUS="0 3 4 7" PYTHON=python OUTDIR=outputs/gemma_repeat \
+LOGDIR=logs/gemma_repeat bash scripts/run_gemma_parallel.sh
+python src/analyze_gemma_sweep.py --outdir outputs/gemma_repeat
+python scripts/check_gemma_status.py --outdir outputs/gemma_repeat --logdir logs/gemma_repeat
+```
+
+每组保存 60×49×7 选项 logits、原生校验、提示词/语料/源码/掩码哈希和运行版本。
+逐块重放会检查混合注意力与 KV 处理；未使用视觉或音频输入。
+未在 Git 中保存稀疏化模型权重，需使用源码、固定语料和配置重建。
+
+## Qwen 运行
 
 ```bash
 # 环境版本见 requirements-pruning.txt；先缓存固定 revision 的 Qwen 模型。
