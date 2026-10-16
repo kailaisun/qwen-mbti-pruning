@@ -10,9 +10,13 @@ models/
 logs/
 docs/arxiv_2608.25977*
 data/pruning_corpus.npz
+data/gemma4_12b_corpus.npz
 outputs/*
 !outputs/README.md
 !outputs/pruning_v3/
+!outputs/gemma4_12b_v3/
+outputs/gemma4_12b_v3/smoke*/
+outputs/gemma4_12b_v3/.*/
 outputs/pruning_v3/repeat_controls.json
 outputs/pruning_v3/smoke*/
 outputs/pruning_v3/*/mask*.npz
