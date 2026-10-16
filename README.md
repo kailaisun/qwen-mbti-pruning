@@ -10,7 +10,7 @@
 magnitude、row-magnitude、随机剪枝、Wanda、SparseGPT，多比例 / 4 元组约束 / 模块与层段消融。
 增加独立 WikiText test 困惑度诊断、逐题贡献、自由生成和格式合法性分析。
 结论和机制分析见 [`PRUNING_REPORT.md`](PRUNING_REPORT.md)，
-**64/64 组已完成，15 项测试通过**。完整结果见
+**64/64 组已完成**。完整结果见
 [`RESULTS.md`](outputs/pruning_v3/RESULTS.md)，结构/位置/种子比较见
 [`ABLATIONS.md`](outputs/pruning_v3/ABLATIONS.md)。结果保存在 `outputs/pruning_v3/`。
 
@@ -20,17 +20,27 @@ magnitude、row-magnitude、随机剪枝、Wanda、SparseGPT，多比例 / 4 元
 PPL 使用 WikiText-2 test 的 32 个 256-token 块，共 8,160 个预测目标，
 是固定短上下文子集诊断，不是完整标准基准。
 
-## Gemma 4-12B（v3 扩展）
+## Gemma 4-12B（v3 扩展，已完成）
 
 设计见 [`GEMMA_EXPERIMENT_PLAN.md`](GEMMA_EXPERIMENT_PLAN.md)。同样固定 64 组，
 独立保存到 `outputs/gemma4_12b_v3/`，不改写 Qwen 原始结果。
-目前已完成模型适配与 BOS 修正，正式实验采用统一的 raw/assistant-prefix 双指标。
+**64/64 组已完成，当前 47 项测试全部通过**；结论和机制分析见
+[`GEMMA_REPORT.md`](GEMMA_REPORT.md)，完整数据见
+[`RESULTS.md`](outputs/gemma4_12b_v3/RESULTS.md)、
+[`ABLATIONS.md`](outputs/gemma4_12b_v3/ABLATIONS.md) 和
+[`CROSS_MODEL.md`](outputs/gemma4_12b_v3/CROSS_MODEL.md)。
+正式实验采用统一的 raw/assistant-prefix 双指标。
 Gemma 使用原生 BF16、48 层、混合注意力和 K=V；只剪语言 decoder 的 attention/MLP 权重。
 原文校准及 PPL 输入显式加 BOS，评分目标仍为每段 255 个、共 8,160 个。
 Gemma 原文 PPL 的较高基线与正常聊天回答并存，不能作为跨模型能力排名；
 所有 Gemma 配置额外计算固定原生回答前缀下的条件 PPL，仍使用相同预测目标。
 两项指标都保留，不择优报告；跨模型仅列出各自原文指标相对 dense 的变化，
 并结合逐题答案、选项概率和自由生成判断。输入格式诊断与方案修改时间见实验计划。
+
+主要发现：默认 50% 时 Wanda/SparseGPT 均从 `?NTJ` 变为 ENFJ，
+仍能合法作答，但只有 33/60、31/60 道与原答案一致；幅值方法已严重失效。
+Wanda 三个校准种子都为 ENFJ，一致题数却为 33/16/13；同标签不等于同回答。
+高稀疏率的 ENFJ 或表面一致率回升，还可能来自常量答案与格式崩坏。
 
 ```bash
 # 使用 requirements-pruning.txt 对应环境；固定 revision，不能下载浮动 main 代替。

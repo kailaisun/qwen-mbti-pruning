@@ -1,0 +1,35 @@
+{
+  "complete": true,
+  "type": "Post-hoc fixed-mask attention x MLP 2x2 factorial on held-out mean NLL",
+  "masks_verified_disjoint_and_union_equal": true,
+  "treatments": {
+    "dense-s00": {
+      "mean_nll": 7.347701877355576,
+      "ppl": 1552.6243036342082,
+      "assistant_mean_nll": 3.6759584322571754,
+      "assistant_ppl": 39.48648384684261
+    },
+    "magnitude-s50-attention": {
+      "mean_nll": 18.64256000518799,
+      "ppl": 124842063.59992598,
+      "assistant_mean_nll": 18.865903079509735,
+      "assistant_ppl": 156083718.68629196
+    },
+    "magnitude-s50-mlp": {
+      "mean_nll": 21.324082732200623,
+      "ppl": 1823607888.7229455,
+      "assistant_mean_nll": 10.18504285812378,
+      "assistant_ppl": 26503.78569334026
+    },
+    "magnitude-s50": {
+      "mean_nll": 26.29258382320404,
+      "ppl": 262255176598.91592,
+      "assistant_mean_nll": 27.08345228433609,
+      "assistant_ppl": 578354178968.7739
+    }
+  },
+  "interaction_nats_per_token": -6.326357036828995,
+  "assistant_interaction_nats_per_token": 1.7084647789597511,
+  "interpretation": "L(all)-L(attention)-L(MLP)+L(dense), separately within raw BOS and assistant conditions; fixed-model/corpus diagnostic, no significance claim",
+  "scope": "Magnitude only; activation-dependent Wanda masks need not match across scopes"
+}

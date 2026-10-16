@@ -1,0 +1,289 @@
+{
+  "purpose": "Post-hoc response-style sensitivity only; primary scoring unchanged",
+  "key_counts": {
+    "EI": {
+      "positive": 7,
+      "negative": 5
+    },
+    "NS": {
+      "positive": 7,
+      "negative": 5
+    },
+    "FT": {
+      "positive": 8,
+      "negative": 5
+    },
+    "JP": {
+      "positive": 7,
+      "negative": 5
+    }
+  },
+  "constant_answers": {
+    "A": {
+      "original_type": "ENFJ",
+      "original_scores": {
+        "EI": {
+          "score": 6,
+          "pole": "E",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.16666666666666666
+        },
+        "NS": {
+          "score": 6,
+          "pole": "N",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.16666666666666666
+        },
+        "FT": {
+          "score": 9,
+          "pole": "F",
+          "tie": false,
+          "n_items": 13,
+          "max_abs_score": 39,
+          "normalized_score": 0.23076923076923078
+        },
+        "JP": {
+          "score": 6,
+          "pole": "J",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.16666666666666666
+        }
+      },
+      "balanced_type": "????"
+    },
+    "B": {
+      "original_type": "ENFJ",
+      "original_scores": {
+        "EI": {
+          "score": 4,
+          "pole": "E",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.1111111111111111
+        },
+        "NS": {
+          "score": 4,
+          "pole": "N",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.1111111111111111
+        },
+        "FT": {
+          "score": 6,
+          "pole": "F",
+          "tie": false,
+          "n_items": 13,
+          "max_abs_score": 39,
+          "normalized_score": 0.15384615384615385
+        },
+        "JP": {
+          "score": 4,
+          "pole": "J",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.1111111111111111
+        }
+      },
+      "balanced_type": "????"
+    },
+    "C": {
+      "original_type": "ENFJ",
+      "original_scores": {
+        "EI": {
+          "score": 2,
+          "pole": "E",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.05555555555555555
+        },
+        "NS": {
+          "score": 2,
+          "pole": "N",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.05555555555555555
+        },
+        "FT": {
+          "score": 3,
+          "pole": "F",
+          "tie": false,
+          "n_items": 13,
+          "max_abs_score": 39,
+          "normalized_score": 0.07692307692307693
+        },
+        "JP": {
+          "score": 2,
+          "pole": "J",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.05555555555555555
+        }
+      },
+      "balanced_type": "????"
+    },
+    "D": {
+      "original_type": "????",
+      "original_scores": {
+        "EI": {
+          "score": 0,
+          "pole": null,
+          "tie": true,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.0
+        },
+        "NS": {
+          "score": 0,
+          "pole": null,
+          "tie": true,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.0
+        },
+        "FT": {
+          "score": 0,
+          "pole": null,
+          "tie": true,
+          "n_items": 13,
+          "max_abs_score": 39,
+          "normalized_score": 0.0
+        },
+        "JP": {
+          "score": 0,
+          "pole": null,
+          "tie": true,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": 0.0
+        }
+      },
+      "balanced_type": "????"
+    },
+    "E": {
+      "original_type": "ISTP",
+      "original_scores": {
+        "EI": {
+          "score": -2,
+          "pole": "I",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": -0.05555555555555555
+        },
+        "NS": {
+          "score": -2,
+          "pole": "S",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": -0.05555555555555555
+        },
+        "FT": {
+          "score": -3,
+          "pole": "T",
+          "tie": false,
+          "n_items": 13,
+          "max_abs_score": 39,
+          "normalized_score": -0.07692307692307693
+        },
+        "JP": {
+          "score": -2,
+          "pole": "P",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": -0.05555555555555555
+        }
+      },
+      "balanced_type": "????"
+    },
+    "F": {
+      "original_type": "ISTP",
+      "original_scores": {
+        "EI": {
+          "score": -4,
+          "pole": "I",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": -0.1111111111111111
+        },
+        "NS": {
+          "score": -4,
+          "pole": "S",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": -0.1111111111111111
+        },
+        "FT": {
+          "score": -6,
+          "pole": "T",
+          "tie": false,
+          "n_items": 13,
+          "max_abs_score": 39,
+          "normalized_score": -0.15384615384615385
+        },
+        "JP": {
+          "score": -4,
+          "pole": "P",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": -0.1111111111111111
+        }
+      },
+      "balanced_type": "????"
+    },
+    "G": {
+      "original_type": "ISTP",
+      "original_scores": {
+        "EI": {
+          "score": -6,
+          "pole": "I",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": -0.16666666666666666
+        },
+        "NS": {
+          "score": -6,
+          "pole": "S",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": -0.16666666666666666
+        },
+        "FT": {
+          "score": -9,
+          "pole": "T",
+          "tie": false,
+          "n_items": 13,
+          "max_abs_score": 39,
+          "normalized_score": -0.23076923076923078
+        },
+        "JP": {
+          "score": -6,
+          "pole": "P",
+          "tie": false,
+          "n_items": 12,
+          "max_abs_score": 36,
+          "normalized_score": -0.16666666666666666
+        }
+      },
+      "balanced_type": "????"
+    }
+  }
+}
